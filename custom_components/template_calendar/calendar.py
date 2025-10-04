@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime
 from typing import Any
+# from ast import literal_eval
 
 import voluptuous as vol
 from homeassistant.components.calendar import (
@@ -117,28 +118,49 @@ class TemplateCalendarEntity(CalendarEntity):
         ]
 
     @callback
-    def _parse_template_result(self, event: 
-        Event[EventStateChangedData] | None, updates: list[TrackTemplateResult]
-    ) -> None:
+    def _parse_template_result(self, event: Event[EventStateChangedData] | None, updates: list[TrackTemplateResult]) -> None:
         """Parse the result of the template rendering."""
         result = updates[0].result
+
+        # _LOGGER.info("Template result type: %s", type(result))
+        # _LOGGER.info("Template result: %s", result)
+
         if isinstance(result, TemplateError):
             _LOGGER.error("Error rendering template %s: %s", self._name, result)
             return
 
         if not result:
             self._events = []
-        elif not isinstance(result, list):
+            self._event = None
+            self.async_write_ha_state()
+            return
+
+        # try:
+        #     data = literal_eval(result)
+        # except Exception as e:
+        #     _LOGGER.error("Template %s did not return valid JSON", self._name)
+        #     _LOGGER.exception(e)
+        #     self._events = []
+        #     self._event = None
+        #     self.async_write_ha_state()
+        #     return
+
+        data = result
+
+        if not isinstance(data, list):
             _LOGGER.error("Template %s did not return a list of events", self._name)
             self._events = []
-        else:
-            self._events = []
-            for event_data in result:
-                try:
-                    validated = CALENDAR_EVENT_SCHEMA(event_data)
-                    self._events.append(CalendarEvent(**validated))
-                except (vol.Invalid, TypeError, ValueError) as err:
-                    _LOGGER.warning("Invalid event data from template %s: %s", self._name, err)
+            self._event = None
+            self.async_write_ha_state()
+            return
+
+        self._events = []
+        for event_data in data:
+            try:
+                validated = CALENDAR_EVENT_SCHEMA(event_data)
+                self._events.append(CalendarEvent(**validated))
+            except (vol.Invalid, TypeError, ValueError) as err:
+                _LOGGER.warning("Invalid event data from template %s: %s", self._name, err)
 
         self._events.sort(key=lambda x: x.start)
         self._event = self._events[0] if self._events else None
